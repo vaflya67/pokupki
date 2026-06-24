@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /lists/{listId}/items/{itemId} {
+      allow read, write: if listId.matches('^[A-Z0-9]{6}$');
+    }
+    match /lists/{listId} {
+      allow read, write: if listId.matches('^[A-Z0-9]{6}$');
+    }
+  }
+}

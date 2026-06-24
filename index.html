@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#1a5c4b" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Список покупок</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Экран: нет Firebase -->
+  <div class="overlay" id="setupOverlay" hidden>
+    <div class="overlay__card">
+      <h2>⚙️ Нужна настройка</h2>
+      <p>Чтобы синхронизировать список с девушкой, один раз настрой Firebase.</p>
+      <p class="overlay__hint">Открой файл <strong>НАСТРОЙКА.txt</strong> в папке проекта — там по шагам.</p>
+      <p class="overlay__hint">Скопируй <code>firebase-config.example.js</code> → <code>firebase-config.js</code> и вставь ключи.</p>
+    </div>
+  </div>
+
+  <!-- Экран: создать / войти в список -->
+  <div class="overlay" id="joinOverlay" hidden>
+    <div class="overlay__card">
+      <h2>🏠 Общий список</h2>
+      <p>Один список на двоих — добавляешь ты, видит она (и наоборот).</p>
+      <button type="button" class="overlay__btn overlay__btn--primary" id="createListBtn">Создать наш список</button>
+      <div class="overlay__divider">или войти по коду</div>
+      <form class="overlay__join" id="joinForm">
+        <input type="text" id="joinCodeInput" class="overlay__input" placeholder="ABC123" maxlength="6" autocapitalize="characters" autocomplete="off" />
+        <button type="submit" class="overlay__btn">Войти</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="app" id="app" hidden>
+    <header class="header">
+      <div class="header__row">
+        <div class="header__titles">
+          <h1 class="header__title">🛒 Покупки</h1>
+          <div class="sync-bar">
+            <span class="sync-dot" id="syncDot" title="Статус"></span>
+            <span class="sync-code" id="listCodeLabel"></span>
+            <button type="button" class="sync-share" id="shareBtn">Поделиться</button>
+          </div>
+        </div>
+        <button type="button" class="theme-btn" id="themeBtn" aria-label="Сменить тему">🌙</button>
+      </div>
+
+      <div class="quick" id="quickAdd">
+        <button type="button" class="quick__chip" data-name="Молоко">🥛 Молоко</button>
+        <button type="button" class="quick__chip" data-name="Хлеб">🍞 Хлеб</button>
+        <button type="button" class="quick__chip" data-name="Яйца">🥚 Яйца</button>
+        <button type="button" class="quick__chip" data-name="Масло">🧈 Масло</button>
+        <button type="button" class="quick__chip" data-name="Вода">💧 Вода</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <div class="stats" id="stats">
+        <span id="statNeed">0 нужно</span>
+        <span class="stats__dot">·</span>
+        <span id="statDone">0 куплено</span>
+      </div>
+
+      <div class="list-wrap" id="listWrap"></div>
+
+      <p class="empty" id="empty">
+        Пока пусто.<br />
+        Добавь что-нибудь — партнёр увидит сразу.
+      </p>
+    </main>
+
+    <div class="bottom-bar">
+      <div class="cats" id="categoryBar" role="group" aria-label="Категория"></div>
+      <form class="add-form" id="addForm">
+        <input
+          type="text"
+          id="itemInput"
+          class="add-form__input"
+          placeholder="Что купить?"
+          autocomplete="off"
+          maxlength="120"
+          enterkeyhint="done"
+        />
+        <button type="submit" class="add-form__btn" aria-label="Добавить">+</button>
+      </form>
+    </div>
+
+    <footer class="footer" id="footer" hidden>
+      <button type="button" class="footer__btn" id="clearDone">Убрать купленное</button>
+      <button type="button" class="footer__btn footer__btn--danger" id="clearAll">Очистить всё</button>
+    </footer>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
