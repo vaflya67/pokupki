@@ -14,25 +14,37 @@ import {
 
 const THEME_KEY = "spisok-pokupok-theme";
 const LIST_KEY = "spisok-pokupok-list-code";
+const CAT_KEY = "spisok-pokupok-category";
 
 const CATEGORIES = [
-  { id: "dairy", label: "Молочка", emoji: "🥛" },
-  { id: "produce", label: "Овощи", emoji: "🥬" },
-  { id: "meat", label: "Мясо", emoji: "🥩" },
-  { id: "bakery", label: "Хлеб", emoji: "🍞" },
-  { id: "household", label: "Бытовое", emoji: "🧴" },
+  { id: "food", label: "Продукты", emoji: "🛒" },
+  { id: "household", label: "Бытовуха", emoji: "🧴" },
+  { id: "cats", label: "Коты", emoji: "🐱" },
   { id: "other", label: "Другое", emoji: "📦" },
 ];
 
+const LEGACY_CATEGORY = {
+  dairy: "food",
+  produce: "food",
+  meat: "food",
+  bakery: "food",
+  food: "food",
+  household: "household",
+  cats: "cats",
+  other: "other",
+};
+
 const AUTO_CATEGORY = {
-  молоко: "dairy", кефир: "dairy", сметана: "dairy", творог: "dairy",
-  сыр: "dairy", йогурт: "dairy", масло: "dairy", яйца: "dairy", яйцо: "dairy",
-  хлеб: "bakery", батон: "bakery", булка: "bakery", лаваш: "bakery",
-  курица: "meat", говядина: "meat", свинина: "meat", рыба: "meat", фарш: "meat", колбаса: "meat",
-  картошка: "produce", картофель: "produce", лук: "produce", морковь: "produce",
-  помидоры: "produce", огурцы: "produce", яблоки: "produce", бананы: "produce",
+  молоко: "food", кефир: "food", сметана: "food", творог: "food", сыр: "food",
+  йогурт: "food", масло: "food", яйца: "food", яйцо: "food", хлеб: "food",
+  батон: "food", булка: "food", курица: "food", говядина: "food", рыба: "food",
+  картошка: "food", лук: "food", морковь: "food", помидор: "food", огурец: "food",
+  банан: "food", яблок: "food", фарш: "food", колбаса: "food",
+  корм: "cats", кошач: "cats", кот: "cats", кота: "cats", наполнитель: "cats",
+  лакомств: "cats",
   вода: "household", соль: "household", сахар: "household", мыло: "household",
-  шампунь: "household", порошок: "household", туалетная: "household",
+  шампунь: "household", порошок: "household", туалетн: "household", салфет: "household",
+  губк: "household", мусорн: "household",
 };
 
 const setupOverlay = document.getElementById("setupOverlay");
@@ -49,7 +61,6 @@ const statDone = document.getElementById("statDone");
 const clearDoneBtn = document.getElementById("clearDone");
 const clearAllBtn = document.getElementById("clearAll");
 const themeBtn = document.getElementById("themeBtn");
-const quickAdd = document.getElementById("quickAdd");
 const createListBtn = document.getElementById("createListBtn");
 const joinForm = document.getElementById("joinForm");
 const joinCodeInput = document.getElementById("joinCodeInput");
@@ -58,7 +69,7 @@ const shareBtn = document.getElementById("shareBtn");
 const syncDot = document.getElementById("syncDot");
 const toastEl = document.getElementById("toast");
 
-let selectedCategory = "other";
+let selectedCategory = normalizeCategory(localStorage.getItem(CAT_KEY) || "food");
 let items = [];
 let hideDone = false;
 let listCode = "";
@@ -69,16 +80,20 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
+function normalizeCategory(id) {
+  return LEGACY_CATEGORY[id] || "food";
+}
+
 function guessCategory(name) {
   const key = name.trim().toLowerCase();
   for (const [word, cat] of Object.entries(AUTO_CATEGORY)) {
     if (key.includes(word)) return cat;
   }
-  return "other";
+  return "food";
 }
 
 function getCategory(id) {
-  return CATEGORIES.find((c) => c.id === id) || CATEGORIES[CATEGORIES.length - 1];
+  return CATEGORIES.find((c) => c.id === normalizeCategory(id)) || CATEGORIES[0];
 }
 
 function generateCode() {
@@ -159,6 +174,7 @@ function renderCategoryBar() {
   categoryBar.querySelectorAll(".cats__btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       selectedCategory = btn.dataset.cat;
+      localStorage.setItem(CAT_KEY, selectedCategory);
       renderCategoryBar();
     });
   });
@@ -168,9 +184,12 @@ async function addItem(name, category) {
   const trimmed = name.trim();
   if (!trimmed || !db) return;
 
-  const cat = category || selectedCategory || guessCategory(trimmed);
+  const cat = normalizeCategory(category || selectedCategory || guessCategory(trimmed));
   const existing = items.find(
-    (i) => !i.done && i.name.toLowerCase() === trimmed.toLowerCase() && i.category === cat
+    (i) =>
+      !i.done &&
+      i.name.toLowerCase() === trimmed.toLowerCase() &&
+      normalizeCategory(i.category) === cat
   );
 
   if (existing) {
@@ -219,16 +238,18 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-function renderItem(item) {
+function renderItem(item, showCategory) {
   const cat = getCategory(item.category);
   const li = document.createElement("li");
   li.className = "item" + (item.done ? " item--done" : "");
 
   li.innerHTML = `
-    <button type="button" class="item__check" aria-label="${item.done ? "Вернуть" : "Куплено"}">${item.done ? "✓" : ""}</button>
+    <button type="button" class="item__check${item.done ? " item__check--done" : ""}" aria-label="${item.done ? "Вернуть в список" : "Отметить купленным"}">
+      ${item.done ? "✓" : ""}
+    </button>
     <div class="item__body">
       <span class="item__name">${escapeHtml(item.name)}</span>
-      <span class="item__cat">${cat.emoji} ${cat.label}</span>
+      ${showCategory ? `<span class="item__cat">${cat.emoji} ${cat.label}</span>` : ""}
     </div>
     <div class="item__qty">
       <button type="button" class="item__qty-btn" data-action="minus" aria-label="Меньше">−</button>
@@ -254,14 +275,14 @@ function render() {
   const visibleDone = hideDone ? [] : done;
 
   CATEGORIES.forEach((cat) => {
-    const group = need.filter((i) => i.category === cat.id);
+    const group = need.filter((i) => normalizeCategory(i.category) === cat.id);
     if (!group.length) return;
     const section = document.createElement("section");
     section.className = "group";
     section.innerHTML = `<h2 class="group__title">${cat.emoji} ${cat.label}</h2>`;
     const ul = document.createElement("ul");
     ul.className = "list";
-    group.forEach((item) => ul.appendChild(renderItem(item)));
+    group.forEach((item) => ul.appendChild(renderItem(item, false)));
     section.appendChild(ul);
     listWrap.appendChild(section);
   });
@@ -272,7 +293,7 @@ function render() {
     section.innerHTML = `<h2 class="group__title group__title--toggle" id="doneToggle">✅ Куплено <span class="group__chevron">${hideDone ? "▸" : "▾"}</span></h2>`;
     const ul = document.createElement("ul");
     ul.className = "list";
-    if (!hideDone) visibleDone.forEach((item) => ul.appendChild(renderItem(item)));
+    if (!hideDone) visibleDone.forEach((item) => ul.appendChild(renderItem(item, true)));
     section.appendChild(ul);
     listWrap.appendChild(section);
     section.querySelector("#doneToggle").addEventListener("click", () => {
@@ -314,7 +335,10 @@ function connectList(code) {
   unsubscribe = onSnapshot(
     itemsRef(),
     (snap) => {
-      items = snap.docs.map((d) => d.data());
+      items = snap.docs.map((d) => {
+        const data = d.data();
+        return { ...data, category: normalizeCategory(data.category) };
+      });
       setSyncStatus(navigator.onLine ? "live" : "offline");
       render();
     },
@@ -366,14 +390,6 @@ async function initFirebase(config) {
 addForm.addEventListener("submit", (e) => {
   e.preventDefault();
   addItem(itemInput.value);
-});
-
-quickAdd.querySelectorAll(".quick__chip").forEach((chip) => {
-  chip.addEventListener("click", () => {
-    selectedCategory = guessCategory(chip.dataset.name);
-    renderCategoryBar();
-    addItem(chip.dataset.name);
-  });
 });
 
 clearDoneBtn.addEventListener("click", clearDone);
