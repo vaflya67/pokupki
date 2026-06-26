@@ -15,6 +15,8 @@ import {
 const THEME_KEY = "spisok-pokupok-theme";
 const LIST_KEY = "spisok-pokupok-list-code";
 const CAT_KEY = "spisok-pokupok-category";
+const HINT_KEY = "spisok-pokupok-swipe-hint";
+const SWIPE_THRESHOLD = 72;
 
 const CATEGORIES = [
   { id: "food", label: "Продукты", emoji: "🛒" },
@@ -68,6 +70,7 @@ const listCodeLabel = document.getElementById("listCodeLabel");
 const shareBtn = document.getElementById("shareBtn");
 const syncDot = document.getElementById("syncDot");
 const toastEl = document.getElementById("toast");
+const swipeHint = document.getElementById("swipeHint");
 
 let selectedCategory = normalizeCategory(localStorage.getItem(CAT_KEY) || "food");
 let items = [];
@@ -207,6 +210,12 @@ async function toggleDone(id) {
   const item = items.find((i) => i.id === id);
   if (!item) return;
   await patchItem(id, { done: !item.done });
+  if (!item.done) hideSwipeHint();
+}
+
+function hideSwipeHint() {
+  localStorage.setItem(HINT_KEY, "1");
+  if (swipeHint) swipeHint.hidden = true;
 }
 
 async function changeQty(id, delta) {
@@ -238,33 +247,124 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-function renderItem(item, showCategory) {
+function attachSwipeBuy(wrap, item) {
+  const panel = wrap.querySelector(".item__panel");
+  let startX = 0;
+  let startY = 0;
+  let deltaX = 0;
+  let dragging = false;
+
+  function reset(animate) {
+    panel.style.transition = animate ? "transform 0.2s ease" : "";
+    panel.style.transform = "";
+    wrap.classList.remove("item-wrap--swiping");
+    setTimeout(() => { panel.style.transition = ""; }, 200);
+  }
+
+  function onStart(clientX, clientY, target) {
+    if (target.closest("button")) return;
+    startX = clientX;
+    startY = clientY;
+    deltaX = 0;
+    dragging = true;
+    panel.style.transition = "";
+  }
+
+  function onMove(clientX, clientY, e) {
+    if (!dragging) return;
+    const dx = clientX - startX;
+    const dy = Math.abs(clientY - startY);
+    if (dx <= 0 && deltaX === 0) return;
+    if (dy > dx && deltaX < 12) return;
+    if (e) e.preventDefault();
+    deltaX = Math.max(0, Math.min(dx, 130));
+    panel.style.transform = `translateX(${deltaX}px)`;
+    wrap.classList.toggle("item-wrap--swiping", deltaX > 8);
+  }
+
+  function onEnd() {
+    if (!dragging) return;
+    dragging = false;
+    if (deltaX >= SWIPE_THRESHOLD) {
+      panel.style.transform = "translateX(100%)";
+      panel.style.transition = "transform 0.2s ease";
+      setTimeout(() => toggleDone(item.id), 180);
+    } else {
+      reset(true);
+    }
+    deltaX = 0;
+  }
+
+  wrap.addEventListener("touchstart", (e) => onStart(e.touches[0].clientX, e.touches[0].clientY, e.target), { passive: true });
+  wrap.addEventListener("touchmove", (e) => onMove(e.touches[0].clientX, e.touches[0].clientY, e), { passive: false });
+  wrap.addEventListener("touchend", onEnd);
+  wrap.addEventListener("touchcancel", onEnd);
+
+  wrap.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    onStart(e.clientX, e.target);
+    const onMouseMove = (ev) => onMove(ev.clientX);
+    const onMouseUp = () => {
+      onEnd();
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  });
+}
+
+function renderItem(item, mode) {
   const cat = getCategory(item.category);
   const li = document.createElement("li");
-  li.className = "item" + (item.done ? " item--done" : "");
 
-  li.innerHTML = `
-    <button type="button" class="item__check${item.done ? " item__check--done" : ""}" aria-label="${item.done ? "Вернуть в список" : "Отметить купленным"}">
-      ${item.done ? "✓" : ""}
-    </button>
-    <div class="item__body">
-      <span class="item__name">${escapeHtml(item.name)}</span>
-      ${showCategory ? `<span class="item__cat">${cat.emoji} ${cat.label}</span>` : ""}
-    </div>
-    <div class="item__qty">
-      <button type="button" class="item__qty-btn" data-action="minus" aria-label="Меньше">−</button>
-      <span class="item__qty-num">${item.qty}</span>
-      <button type="button" class="item__qty-btn" data-action="plus" aria-label="Больше">+</button>
-    </div>
-    <button type="button" class="item__delete" aria-label="Удалить">✕</button>`;
+  if (mode === "buy") {
+    li.className = "item-wrap";
+    li.innerHTML = `
+      <div class="item-swipe">
+        <div class="item-swipe__bg">✓ Куплено</div>
+        <div class="item item__panel">
+          <div class="item__body">
+            <span class="item__name">${escapeHtml(item.name)}</span>
+            ${item.qty > 1 ? `<span class="item__qty-inline">× ${item.qty}</span>` : ""}
+          </div>
+          <div class="item__qty">
+            <button type="button" class="item__qty-btn" data-action="minus" aria-label="Меньше">−</button>
+            <span class="item__qty-num">${item.qty}</span>
+            <button type="button" class="item__qty-btn" data-action="plus" aria-label="Больше">+</button>
+          </div>
+          <button type="button" class="item__delete" aria-label="Удалить">✕</button>
+        </div>
+      </div>`;
 
-  li.querySelector(".item__check").addEventListener("click", () => toggleDone(item.id));
-  li.querySelector('[data-action="minus"]').addEventListener("click", () => {
+    attachSwipeBuy(li, item);
+  } else {
+    li.className = "item item--done";
+    li.innerHTML = `
+      <div class="item__body">
+        <span class="item__name">${escapeHtml(item.name)}</span>
+        <span class="item__cat">${cat.emoji} ${cat.label}${item.qty > 1 ? ` · ×${item.qty}` : ""}</span>
+      </div>
+      <button type="button" class="item__undo" aria-label="Вернуть в список">↩</button>
+      <button type="button" class="item__delete" aria-label="Удалить">✕</button>`;
+
+    li.querySelector(".item__undo").addEventListener("click", () => toggleDone(item.id));
+  }
+
+  li.querySelector('[data-action="minus"]')?.addEventListener("click", (e) => {
+    e.stopPropagation();
     if (item.qty === 1) removeItem(item.id);
     else changeQty(item.id, -1);
   });
-  li.querySelector('[data-action="plus"]').addEventListener("click", () => changeQty(item.id, 1));
-  li.querySelector(".item__delete").addEventListener("click", () => removeItem(item.id));
+  li.querySelector('[data-action="plus"]')?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    changeQty(item.id, 1);
+  });
+  li.querySelector(".item__delete")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    removeItem(item.id);
+  });
+
   return li;
 }
 
@@ -279,10 +379,10 @@ function render() {
     if (!group.length) return;
     const section = document.createElement("section");
     section.className = "group";
-    section.innerHTML = `<h2 class="group__title">${cat.emoji} ${cat.label}</h2>`;
+    section.innerHTML = `<h2 class="group__title">${cat.emoji} ${cat.label} <span class="group__count">${group.length}</span></h2>`;
     const ul = document.createElement("ul");
     ul.className = "list";
-    group.forEach((item) => ul.appendChild(renderItem(item, false)));
+    group.forEach((item) => ul.appendChild(renderItem(item, "buy")));
     section.appendChild(ul);
     listWrap.appendChild(section);
   });
@@ -293,7 +393,7 @@ function render() {
     section.innerHTML = `<h2 class="group__title group__title--toggle" id="doneToggle">✅ Куплено <span class="group__chevron">${hideDone ? "▸" : "▾"}</span></h2>`;
     const ul = document.createElement("ul");
     ul.className = "list";
-    if (!hideDone) visibleDone.forEach((item) => ul.appendChild(renderItem(item, true)));
+    if (!hideDone) visibleDone.forEach((item) => ul.appendChild(renderItem(item, "done")));
     section.appendChild(ul);
     listWrap.appendChild(section);
     section.querySelector("#doneToggle").addEventListener("click", () => {
@@ -309,6 +409,10 @@ function render() {
   footerEl.hidden = total === 0;
   statNeed.textContent = `${need.length} нужно`;
   statDone.textContent = `${done.length} куплено`;
+
+  if (swipeHint) {
+    swipeHint.hidden = need.length === 0 || localStorage.getItem(HINT_KEY) === "1";
+  }
 }
 
 function showApp() {
