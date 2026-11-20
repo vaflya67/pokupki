@@ -926,7 +926,20 @@ window.addEventListener("online", () => setSyncStatus("live"));
 window.addEventListener("offline", () => setSyncStatus("offline"));
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js").catch(() => {});
+  // когда приходит новая версия — один раз перезагружаемся, чтобы сразу её показать
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController || reloaded) return;
+    reloaded = true;
+    location.reload();
+  });
+  navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).then((reg) => {
+    // проверяем обновления при каждом возвращении в приложение
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") reg.update().catch(() => {});
+    });
+  }).catch(() => {});
 }
 
 initTheme();

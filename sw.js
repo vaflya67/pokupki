@@ -1,4 +1,4 @@
-const CACHE = "spisok-pokupok-v8";
+const CACHE = "spisok-pokupok-v9";
 const ASSETS = ["./", "./index.html", "./style.css", "./app.js", "./icon.svg", "./icon-180.png", "./icon-192.png", "./icon-512.png", "./manifest.json"];
 
 self.addEventListener("install", (event) => {
@@ -16,24 +16,24 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
-  if (url.origin.includes("googleapis") || url.origin.includes("gstatic.com")) {
-    return;
-  }
+  const req = event.request;
+  if (req.method !== "GET") return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return; // Firebase, шрифты — напрямую
 
+  // Сначала сеть (всегда свежая версия), без интернета — сохранённая копия
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const fetched = fetch(event.request)
-        .then((response) => {
-          if (response.ok && event.request.method === "GET" && url.origin === self.location.origin) {
-            const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put(event.request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || fetched;
-    })
+    fetch(req, { cache: "no-cache" })
+      .then((response) => {
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(req, copy));
+        }
+        return response;
+      })
+      .catch(() =>
+        caches.match(req, { ignoreSearch: req.mode === "navigate" }).then((cached) => cached || caches.match("./index.html"))
+      )
   );
 });
 
