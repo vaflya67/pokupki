@@ -4,6 +4,8 @@ import {
   collection,
   doc,
   setDoc,
+  getDoc,
+  addDoc,
   updateDoc,
   deleteDoc,
   onSnapshot,
@@ -784,9 +786,48 @@ async function initNotifications() {
 const notifySheet = $("notifySheet");
 const nameInput = $("nameInput");
 
+const pushStatus = $("pushStatus");
+
+function timeAgo(ts) {
+  const m = Math.round((Date.now() - ts) / 60000);
+  if (m < 1) return "только что";
+  if (m < 60) return `${m} мин назад`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h} ч назад` : new Date(ts).toLocaleDateString("ru-RU");
+}
+
+async function loadPushStatus() {
+  pushStatus.textContent = "";
+  try {
+    const snap = await getDoc(doc(collection(db, "lists", listCode, "meta"), "push"));
+    if (!snap.exists()) {
+      pushStatus.textContent = "Уведомлений ещё не отправлялось";
+      return;
+    }
+    const p = snap.data();
+    const parts = (p.results || []).map((r) => `${r.ok ? "✅" : "❌"} ${r.name}${r.ok ? "" : ` (${r.error})`}`);
+    pushStatus.textContent = `Последнее «${p.title}» — ${timeAgo(p.at)}: ${parts.join(", ")}`;
+  } catch {
+    pushStatus.textContent = "";
+  }
+}
+
 function openNotifySheet() {
   nameInput.value = myName();
   notifySheet.hidden = false;
+  loadPushStatus();
+}
+
+async function sendTestPush() {
+  closeNotifySheet();
+  try {
+    await registerPushToken();
+    await addDoc(collection(db, "lists", listCode, "tests"), { deviceId: deviceId, delaySec: 10, at: Date.now() });
+    showToast("Заблокируй экран — через ~10 сек придёт тест");
+  } catch (e) {
+    console.error(e);
+    showToast("Не получилось отправить тест");
+  }
 }
 
 function closeNotifySheet() {
@@ -807,6 +848,7 @@ async function saveName() {
 }
 
 $("saveNameBtn").addEventListener("click", saveName);
+$("testPushBtn").addEventListener("click", sendTestPush);
 nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") saveName(); });
 $("notifyOffBtn").addEventListener("click", () => { closeNotifySheet(); disableNotifications(); });
 $("sheetCloseBtn").addEventListener("click", closeNotifySheet);

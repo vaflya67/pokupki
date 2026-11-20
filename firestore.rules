@@ -7,6 +7,12 @@ service cloud.firestore {
     match /lists/{listId}/devices/{deviceId} {
       allow read, write: if listId.matches('^[A-Z0-9]{6}$');
     }
+    match /lists/{listId}/tests/{testId} {
+      allow create: if listId.matches('^[A-Z0-9]{6}$');
+    }
+    match /lists/{listId}/meta/{docId} {
+      allow read: if listId.matches('^[A-Z0-9]{6}$');
+    }
     match /lists/{listId} {
       allow read, write: if listId.matches('^[A-Z0-9]{6}$');
     }

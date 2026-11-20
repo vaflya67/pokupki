@@ -19,13 +19,32 @@ const WINDOW_MS = 3 * 60 * 1000;
 async function sendToOthers(code, exceptDeviceId, payload) {
   const snap = await db.collection("lists").doc(code).collection("devices").get();
   const targets = snap.docs.filter((d) => d.id !== exceptDeviceId && d.get("token"));
-  if (!targets.length) return;
+  return sendToDevices(code, targets, payload);
+}
+
+/* Отправка + запись результата в lists/{code}/meta/push — видно в меню 🔔 */
+async function sendToDevices(code, targets, payload) {
+  const report = { at: Date.now(), title: payload.title, results: [] };
+  if (!targets.length) {
+    report.results.push({ name: "—", ok: false, error: "нет получателей (у второго не включён 🔔)" });
+    await db.collection("lists").doc(code).collection("meta").doc("push").set(report);
+    return report;
+  }
 
   const res = await admin.messaging().sendEachForMulticast({
     tokens: targets.map((d) => d.get("token")),
     data: payload,
     webpush: { headers: { Urgency: "high", TTL: "86400" } },
   });
+
+  res.responses.forEach((r, i) => {
+    report.results.push({
+      name: targets[i].get("name") || "без имени",
+      ok: r.success,
+      error: r.success ? "" : (r.error?.code || "error"),
+    });
+  });
+  await db.collection("lists").doc(code).collection("meta").doc("push").set(report);
 
   await Promise.all(
     res.responses.map((r, i) => {
@@ -38,6 +57,7 @@ async function sendToOthers(code, exceptDeviceId, payload) {
       return null;
     })
   );
+  return report;
 }
 
 function listNames(names) {
@@ -93,4 +113,22 @@ exports.onItemBought = onDocumentUpdated("lists/{code}/items/{itemId}", async (e
     tag: `done-${code}`,
     url: `./?l=${code}`,
   });
+});
+
+/* Тест: уведомление на этот же телефон через несколько секунд (успеть заблокировать экран) */
+exports.onPushTest = onDocumentCreated("lists/{code}/tests/{testId}", async (event) => {
+  const t = event.data?.data();
+  if (!t?.deviceId) return;
+  const code = event.params.code;
+  const delay = Math.min(Math.max(Number(t.delaySec) || 10, 0), 20);
+  await new Promise((r) => setTimeout(r, delay * 1000));
+  const dev = await db.collection("lists").doc(code).collection("devices").doc(t.deviceId).get();
+  const report = await sendToDevices(code, dev.exists && dev.get("token") ? [dev] : [], {
+    title: "🔔 Тест уведомлений",
+    body: "Если ты это видишь — всё работает 🎉",
+    tag: `test-${code}`,
+    url: `./?l=${code}`,
+  });
+  await event.data.ref.delete().catch(() => {});
+  logger.info("push test", report);
 });
