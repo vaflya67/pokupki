@@ -8,15 +8,15 @@ import {
   deleteDoc,
   onSnapshot,
   writeBatch,
-  getDocs,
   enableIndexedDbPersistence,
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const THEME_KEY = "spisok-pokupok-theme";
 const LIST_KEY = "spisok-pokupok-list-code";
 const CAT_KEY = "spisok-pokupok-category";
-const HINT_KEY = "spisok-pokupok-swipe-hint";
-const SWIPE_THRESHOLD = 72;
+const HINT_KEY = "spisok-pokupok-swipe-hint-v2";
+const SWIPE_THRESHOLD = 80;
+const ANIM_MS = 260;
 
 const CATEGORIES = [
   { id: "food", label: "Продукты", emoji: "🛒" },
@@ -49,28 +49,34 @@ const AUTO_CATEGORY = {
   губк: "household", мусорн: "household",
 };
 
-const setupOverlay = document.getElementById("setupOverlay");
-const joinOverlay = document.getElementById("joinOverlay");
-const appEl = document.getElementById("app");
-const addForm = document.getElementById("addForm");
-const itemInput = document.getElementById("itemInput");
-const listWrap = document.getElementById("listWrap");
-const categoryBar = document.getElementById("categoryBar");
-const emptyEl = document.getElementById("empty");
-const footerEl = document.getElementById("footer");
-const statNeed = document.getElementById("statNeed");
-const statDone = document.getElementById("statDone");
-const clearDoneBtn = document.getElementById("clearDone");
-const clearAllBtn = document.getElementById("clearAll");
-const themeBtn = document.getElementById("themeBtn");
-const createListBtn = document.getElementById("createListBtn");
-const joinForm = document.getElementById("joinForm");
-const joinCodeInput = document.getElementById("joinCodeInput");
-const listCodeLabel = document.getElementById("listCodeLabel");
-const shareBtn = document.getElementById("shareBtn");
-const syncDot = document.getElementById("syncDot");
-const toastEl = document.getElementById("toast");
-const swipeHint = document.getElementById("swipeHint");
+const $ = (id) => document.getElementById(id);
+const setupOverlay = $("setupOverlay");
+const joinOverlay = $("joinOverlay");
+const appEl = $("app");
+const addForm = $("addForm");
+const itemInput = $("itemInput");
+const listWrap = $("listWrap");
+const categoryBar = $("categoryBar");
+const emptyEl = $("empty");
+const emptyTitle = $("emptyTitle");
+const emptyText = $("emptyText");
+const footerEl = $("footer");
+const progressEl = $("progress");
+const progressBar = $("progressBar");
+const statNeed = $("statNeed");
+const statDone = $("statDone");
+const clearDoneBtn = $("clearDone");
+const clearAllBtn = $("clearAll");
+const themeBtn = $("themeBtn");
+const createListBtn = $("createListBtn");
+const joinForm = $("joinForm");
+const joinCodeInput = $("joinCodeInput");
+const listCodeLabel = $("listCodeLabel");
+const shareBtn = $("shareBtn");
+const syncDot = $("syncDot");
+const toastEl = $("toast");
+const swipeHint = $("swipeHint");
+const bottomBar = document.querySelector(".bottom-bar");
 
 let selectedCategory = normalizeCategory(localStorage.getItem(CAT_KEY) || "food");
 let items = [];
@@ -78,6 +84,11 @@ let hideDone = false;
 let listCode = "";
 let db = null;
 let unsubscribe = null;
+let openId = null;
+let knownIds = null;
+let nudgeShown = false;
+
+/* ---------- helpers ---------- */
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -99,6 +110,10 @@ function getCategory(id) {
   return CATEGORIES.find((c) => c.id === normalizeCategory(id)) || CATEGORIES[0];
 }
 
+function catColor(id) {
+  return `var(--cat-${normalizeCategory(id)})`;
+}
+
 function generateCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
@@ -116,11 +131,53 @@ function getShareUrl(code) {
   return url.toString();
 }
 
-function showToast(msg) {
-  toastEl.textContent = msg;
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+/* Вибрация: Android — vibrate, iPhone (iOS 18+) — трюк с переключателем */
+const hapticLabel = (() => {
+  const label = document.createElement("label");
+  label.className = "haptic";
+  label.setAttribute("aria-hidden", "true");
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.setAttribute("switch", "");
+  input.tabIndex = -1;
+  label.appendChild(input);
+  document.body.appendChild(label);
+  return label;
+})();
+
+function haptic() {
+  try {
+    if (navigator.vibrate) navigator.vibrate(12);
+    else hapticLabel.click();
+  } catch { /* ignore */ }
+}
+
+function showToast(msg, action) {
+  toastEl.innerHTML = "";
+  const span = document.createElement("span");
+  span.textContent = msg;
+  toastEl.appendChild(span);
+  toastEl.classList.toggle("toast--plain", !action);
+  if (action) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "toast__action";
+    btn.textContent = action.label;
+    btn.addEventListener("click", () => {
+      toastEl.hidden = true;
+      action.run();
+    });
+    toastEl.appendChild(btn);
+  }
   toastEl.hidden = false;
   clearTimeout(showToast._t);
-  showToast._t = setTimeout(() => { toastEl.hidden = true; }, 2200);
+  showToast._t = setTimeout(() => { toastEl.hidden = true; }, action ? 4500 : 2200);
 }
 
 function setSyncStatus(status) {
@@ -140,9 +197,20 @@ function applyTheme(theme) {
   themeBtn.textContent = theme === "dark" ? "☀️" : "🌙";
   themeBtn.setAttribute("aria-label", theme === "dark" ? "Светлая тема" : "Тёмная тема");
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = theme === "dark" ? "#0f1a17" : "#1a5c4b";
+  if (meta) meta.content = theme === "dark" ? "#0e1513" : "#f3f6f4";
   localStorage.setItem(THEME_KEY, theme);
 }
+
+/* Нижняя панель не должна закрывать список */
+function syncBottomPadding() {
+  if (!bottomBar) return;
+  document.documentElement.style.setProperty("--bottom-h", bottomBar.offsetHeight + "px");
+}
+if (bottomBar && "ResizeObserver" in window) {
+  new ResizeObserver(syncBottomPadding).observe(bottomBar);
+}
+
+/* ---------- Firestore ---------- */
 
 function itemsRef() {
   return collection(db, "lists", listCode, "items");
@@ -166,13 +234,22 @@ async function batchDelete(ids) {
   await batch.commit();
 }
 
+async function batchRestore(list) {
+  const batch = writeBatch(db);
+  list.forEach((item) => batch.set(doc(itemsRef(), item.id), item));
+  await batch.commit();
+}
+
+/* ---------- actions ---------- */
+
 function renderCategoryBar() {
   categoryBar.innerHTML = CATEGORIES.map(
     (cat) => `
-      <button type="button" class="cats__btn${selectedCategory === cat.id ? " cats__btn--active" : ""}" data-cat="${cat.id}">
+      <button type="button" class="cats__btn${selectedCategory === cat.id ? " cats__btn--active" : ""}" data-cat="${cat.id}" style="--c:${catColor(cat.id)}">
         ${cat.emoji} ${cat.label}
       </button>`
   ).join("");
+  addForm.style.setProperty("--c", catColor(selectedCategory));
 
   categoryBar.querySelectorAll(".cats__btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -195,22 +272,16 @@ async function addItem(name, category) {
       normalizeCategory(i.category) === cat
   );
 
+  itemInput.value = "";
+  itemInput.focus();
+
   if (existing) {
     await patchItem(existing.id, { qty: existing.qty + 1 });
+    showToast(`${existing.name} — уже ${existing.qty + 1} шт.`);
   } else {
     const item = { id: uid(), name: trimmed, qty: 1, done: false, category: cat };
     await persistItem(item);
   }
-
-  itemInput.value = "";
-  itemInput.focus();
-}
-
-async function toggleDone(id) {
-  const item = items.find((i) => i.id === id);
-  if (!item) return;
-  await patchItem(id, { done: !item.done });
-  if (!item.done) hideSwipeHint();
 }
 
 function hideSwipeHint() {
@@ -218,201 +289,295 @@ function hideSwipeHint() {
   if (swipeHint) swipeHint.hidden = true;
 }
 
+async function setDone(id, done) {
+  if (!items.find((i) => i.id === id)) return;
+  if (openId === id) openId = null;
+  await patchItem(id, { done });
+}
+
 async function changeQty(id, delta) {
   const item = items.find((i) => i.id === id);
   if (!item) return;
   const qty = Math.max(1, item.qty + delta);
+  if (qty !== item.qty) haptic();
   await patchItem(id, { qty });
 }
 
 async function removeItem(id) {
+  const item = items.find((i) => i.id === id);
+  if (!item) return;
+  if (openId === id) openId = null;
+  const copy = { ...item };
   await dropItem(id);
+  showToast(`Удалено: ${copy.name}`, { label: "Отменить", run: () => persistItem(copy) });
 }
 
 async function clearDone() {
-  const ids = items.filter((i) => i.done).map((i) => i.id);
-  if (ids.length) await batchDelete(ids);
+  const done = items.filter((i) => i.done).map((i) => ({ ...i }));
+  if (!done.length) return;
+  await batchDelete(done.map((i) => i.id));
+  showToast(`Убрано: ${done.length}`, { label: "Отменить", run: () => batchRestore(done) });
 }
 
 async function clearAll() {
   if (!items.length) return;
-  if (confirm("Очистить весь список?")) {
-    await batchDelete(items.map((i) => i.id));
-  }
+  if (!confirm("Очистить весь список?")) return;
+  const all = items.map((i) => ({ ...i }));
+  await batchDelete(all.map((i) => i.id));
+  showToast("Список очищен", { label: "Отменить", run: () => batchRestore(all) });
 }
 
-function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
+/* Плавно схлопнуть строку, потом выполнить действие */
+function collapseRow(li, then) {
+  li.style.height = li.offsetHeight + "px";
+  requestAnimationFrame(() => {
+    li.style.height = "0px";
+    li.style.opacity = "0";
+  });
+  setTimeout(then, ANIM_MS);
 }
 
-function attachSwipeBuy(wrap, item) {
-  const panel = wrap.querySelector(".item__panel");
+/* ---------- swipe ---------- */
+
+function attachSwipe(li, { onRight, onLeft }) {
+  const panel = li.querySelector(".row__panel");
   let startX = 0;
   let startY = 0;
-  let deltaX = 0;
-  let dragging = false;
+  let dx = 0;
+  let tracking = false;
+  let horizontal = null;
+  let armed = false;
 
-  function reset(animate) {
-    panel.style.transition = animate ? "transform 0.2s ease" : "";
-    panel.style.transform = "";
-    wrap.classList.remove("item-wrap--swiping");
-    setTimeout(() => { panel.style.transition = ""; }, 200);
+  function setArmed(value) {
+    if (value === armed) return;
+    armed = value;
+    li.classList.toggle("row--armed", armed);
+    if (armed) haptic();
   }
 
-  function onStart(clientX, clientY, target) {
+  function reset() {
+    panel.style.transition = "transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)";
+    panel.style.transform = "";
+    li.classList.remove("row--dir-right", "row--dir-left", "row--armed");
+    armed = false;
+    setTimeout(() => { panel.style.transition = ""; }, 250);
+  }
+
+  function start(x, y, target) {
     if (target.closest("button")) return;
-    startX = clientX;
-    startY = clientY;
-    deltaX = 0;
-    dragging = true;
+    li.classList.remove("row--nudge");
+    startX = x;
+    startY = y;
+    dx = 0;
+    horizontal = null;
+    tracking = true;
     panel.style.transition = "";
   }
 
-  function onMove(clientX, clientY, e) {
-    if (!dragging) return;
-    const dx = clientX - startX;
-    const dy = Math.abs(clientY - startY);
-    if (dx <= 0 && deltaX === 0) return;
-    if (dy > dx && deltaX < 12) return;
-    if (e) e.preventDefault();
-    deltaX = Math.max(0, Math.min(dx, 130));
-    panel.style.transform = `translateX(${deltaX}px)`;
-    wrap.classList.toggle("item-wrap--swiping", deltaX > 8);
-  }
-
-  function onEnd() {
-    if (!dragging) return;
-    dragging = false;
-    if (deltaX >= SWIPE_THRESHOLD) {
-      panel.style.transform = "translateX(100%)";
-      panel.style.transition = "transform 0.2s ease";
-      setTimeout(() => toggleDone(item.id), 180);
-    } else {
-      reset(true);
+  function move(x, y, e) {
+    if (!tracking) return;
+    const rawX = x - startX;
+    const rawY = y - startY;
+    if (horizontal === null) {
+      if (Math.abs(rawX) < 8 && Math.abs(rawY) < 8) return;
+      horizontal = Math.abs(rawX) > Math.abs(rawY);
+      if (!horizontal) { tracking = false; return; }
     }
-    deltaX = 0;
+    if (e?.cancelable) e.preventDefault();
+    // сопротивление после порога
+    const sign = Math.sign(rawX);
+    const abs = Math.abs(rawX);
+    dx = sign * (abs < 140 ? abs : 140 + (abs - 140) * 0.3);
+    if ((dx > 0 && !onRight) || (dx < 0 && !onLeft)) dx = dx * 0.15;
+    panel.style.transform = `translateX(${dx}px)`;
+    li.classList.toggle("row--dir-right", dx > 0);
+    li.classList.toggle("row--dir-left", dx < 0);
+    setArmed(Math.abs(dx) >= SWIPE_THRESHOLD && ((dx > 0 && !!onRight) || (dx < 0 && !!onLeft)));
   }
 
-  wrap.addEventListener("touchstart", (e) => onStart(e.touches[0].clientX, e.touches[0].clientY, e.target), { passive: true });
-  wrap.addEventListener("touchmove", (e) => onMove(e.touches[0].clientX, e.touches[0].clientY, e), { passive: false });
-  wrap.addEventListener("touchend", onEnd);
-  wrap.addEventListener("touchcancel", onEnd);
+  function end() {
+    if (!tracking) return;
+    tracking = false;
+    if (armed) {
+      const dir = dx > 0 ? 1 : -1;
+      panel.style.transition = "transform 0.22s ease-in";
+      panel.style.transform = `translateX(${dir * 110}%)`;
+      hideSwipeHint();
+      setTimeout(() => collapseRow(li, dir > 0 ? onRight : onLeft), 180);
+    } else if (dx !== 0) {
+      reset();
+    }
+    dx = 0;
+  }
 
-  wrap.addEventListener("mousedown", (e) => {
+  li.addEventListener("touchstart", (e) => start(e.touches[0].clientX, e.touches[0].clientY, e.target), { passive: true });
+  li.addEventListener("touchmove", (e) => move(e.touches[0].clientX, e.touches[0].clientY, e), { passive: false });
+  li.addEventListener("touchend", end);
+  li.addEventListener("touchcancel", end);
+
+  li.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
-    onStart(e.clientX, e.target);
-    const onMouseMove = (ev) => onMove(ev.clientX);
-    const onMouseUp = () => {
-      onEnd();
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
+    start(e.clientX, e.clientY, e.target);
+    const onMove = (ev) => move(ev.clientX, ev.clientY);
+    const onUp = () => {
+      end();
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
     };
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
   });
 }
 
-function renderItem(item, mode) {
+/* ---------- render ---------- */
+
+function renderItem(item, mode, isNew) {
   const cat = getCategory(item.category);
   const li = document.createElement("li");
+  li.className = "row" + (mode === "done" ? " row--done" : "") + (isNew ? " row--new" : "") + (openId === item.id ? " row--open" : "");
+  li.style.setProperty("--c", catColor(item.category));
+  li.dataset.id = item.id;
 
   if (mode === "buy") {
-    li.className = "item-wrap";
     li.innerHTML = `
-      <div class="item-swipe">
-        <div class="item-swipe__bg">✓ Куплено</div>
-        <div class="item item__panel">
-          <div class="item__body">
-            <span class="item__name">${escapeHtml(item.name)}</span>
-            ${item.qty > 1 ? `<span class="item__qty-inline">× ${item.qty}</span>` : ""}
-          </div>
-          <div class="item__qty">
-            <button type="button" class="item__qty-btn" data-action="minus" aria-label="Меньше">−</button>
-            <span class="item__qty-num">${item.qty}</span>
-            <button type="button" class="item__qty-btn" data-action="plus" aria-label="Больше">+</button>
-          </div>
-          <button type="button" class="item__delete" aria-label="Удалить">✕</button>
+      <div class="row__bg row__bg--right"><span class="row__bg-icon">✓</span>Купил</div>
+      <div class="row__bg row__bg--left">Удалить<span class="row__bg-icon">🗑</span></div>
+      <div class="row__panel">
+        <button type="button" class="check" aria-label="Купил"></button>
+        <div class="row__body"><span class="row__name">${escapeHtml(item.name)}</span></div>
+        ${item.qty > 1 ? `<button type="button" class="qty-pill" aria-label="Количество">×${item.qty}</button>` : ""}
+        <div class="stepper">
+          <button type="button" class="stepper__btn" data-action="minus" aria-label="Меньше">−</button>
+          <span class="stepper__num">${item.qty}</span>
+          <button type="button" class="stepper__btn" data-action="plus" aria-label="Больше">+</button>
         </div>
       </div>`;
 
-    attachSwipeBuy(li, item);
+    const check = li.querySelector(".check");
+    check.addEventListener("click", () => {
+      check.classList.add("check--on");
+      haptic();
+      hideSwipeHint();
+      setTimeout(() => collapseRow(li, () => setDone(item.id, true)), 220);
+    });
+
+    const toggleOpen = () => {
+      openId = openId === item.id ? null : item.id;
+      listWrap.querySelectorAll(".row--open").forEach((r) => { if (r !== li) r.classList.remove("row--open"); });
+      li.classList.toggle("row--open", openId === item.id);
+    };
+    li.querySelector(".row__body").addEventListener("click", toggleOpen);
+    li.querySelector(".qty-pill")?.addEventListener("click", toggleOpen);
+
+    li.querySelector('[data-action="minus"]').addEventListener("click", () => {
+      if (item.qty === 1) collapseRow(li, () => removeItem(item.id));
+      else changeQty(item.id, -1);
+    });
+    li.querySelector('[data-action="plus"]').addEventListener("click", () => changeQty(item.id, 1));
+
+    attachSwipe(li, {
+      onRight: () => setDone(item.id, true),
+      onLeft: () => removeItem(item.id),
+    });
   } else {
-    li.className = "item item--done";
     li.innerHTML = `
-      <div class="item__body">
-        <span class="item__name">${escapeHtml(item.name)}</span>
-        <span class="item__cat">${cat.emoji} ${cat.label}${item.qty > 1 ? ` · ×${item.qty}` : ""}</span>
-      </div>
-      <button type="button" class="item__undo" aria-label="Вернуть в список">↩</button>
-      <button type="button" class="item__delete" aria-label="Удалить">✕</button>`;
+      <div class="row__bg row__bg--right"><span class="row__bg-icon">↩</span>Вернуть</div>
+      <div class="row__bg row__bg--left">Удалить<span class="row__bg-icon">🗑</span></div>
+      <div class="row__panel">
+        <button type="button" class="check check--on" aria-label="Вернуть в список"></button>
+        <div class="row__body">
+          <span class="row__name">${escapeHtml(item.name)}</span>
+          <span class="row__meta">${cat.emoji} ${cat.label}${item.qty > 1 ? ` · ×${item.qty}` : ""}</span>
+        </div>
+      </div>`;
 
-    li.querySelector(".item__undo").addEventListener("click", () => toggleDone(item.id));
+    li.querySelector(".check").addEventListener("click", () => {
+      haptic();
+      collapseRow(li, () => setDone(item.id, false));
+    });
+
+    attachSwipe(li, {
+      onRight: () => setDone(item.id, false),
+      onLeft: () => removeItem(item.id),
+    });
   }
-
-  li.querySelector('[data-action="minus"]')?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (item.qty === 1) removeItem(item.id);
-    else changeQty(item.id, -1);
-  });
-  li.querySelector('[data-action="plus"]')?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    changeQty(item.id, 1);
-  });
-  li.querySelector(".item__delete")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    removeItem(item.id);
-  });
 
   return li;
 }
 
 function render() {
+  const scrollY = window.scrollY;
   listWrap.innerHTML = "";
   const need = items.filter((i) => !i.done);
   const done = items.filter((i) => i.done);
-  const visibleDone = hideDone ? [] : done;
+  const firstRender = knownIds === null;
+  const isNew = (id) => !firstRender && !knownIds.has(id);
+  let firstNeedRow = null;
 
   CATEGORIES.forEach((cat) => {
     const group = need.filter((i) => normalizeCategory(i.category) === cat.id);
     if (!group.length) return;
     const section = document.createElement("section");
     section.className = "group";
+    section.style.setProperty("--c", catColor(cat.id));
     section.innerHTML = `<h2 class="group__title">${cat.emoji} ${cat.label} <span class="group__count">${group.length}</span></h2>`;
     const ul = document.createElement("ul");
     ul.className = "list";
-    group.forEach((item) => ul.appendChild(renderItem(item, "buy")));
+    group.forEach((item) => {
+      const li = renderItem(item, "buy", isNew(item.id));
+      if (!firstNeedRow) firstNeedRow = li;
+      ul.appendChild(li);
+    });
     section.appendChild(ul);
     listWrap.appendChild(section);
   });
 
-  if (visibleDone.length) {
+  if (done.length) {
     const section = document.createElement("section");
-    section.className = "group group--done";
-    section.innerHTML = `<h2 class="group__title group__title--toggle" id="doneToggle">✅ Куплено <span class="group__chevron">${hideDone ? "▸" : "▾"}</span></h2>`;
-    const ul = document.createElement("ul");
-    ul.className = "list";
-    if (!hideDone) visibleDone.forEach((item) => ul.appendChild(renderItem(item, "done")));
-    section.appendChild(ul);
+    section.className = "group group--done" + (hideDone ? " group--collapsed" : "");
+    section.innerHTML = `<h2 class="group__title group__title--toggle">✅ Куплено · ${done.length} <span class="group__chevron">▾</span></h2>`;
+    if (!hideDone) {
+      const ul = document.createElement("ul");
+      ul.className = "list";
+      done.forEach((item) => ul.appendChild(renderItem(item, "done", isNew(item.id))));
+      section.appendChild(ul);
+    }
     listWrap.appendChild(section);
-    section.querySelector("#doneToggle").addEventListener("click", () => {
+    section.querySelector(".group__title--toggle").addEventListener("click", () => {
       hideDone = !hideDone;
       render();
     });
-  } else {
-    hideDone = false;
   }
 
   const total = items.length;
-  emptyEl.hidden = total > 0;
-  footerEl.hidden = total === 0;
-  statNeed.textContent = `${need.length} нужно`;
-  statDone.textContent = `${done.length} куплено`;
+  const hintDismissed = localStorage.getItem(HINT_KEY) === "1";
 
-  if (swipeHint) {
-    swipeHint.hidden = need.length === 0 || localStorage.getItem(HINT_KEY) === "1";
+  // пустые состояния
+  emptyEl.hidden = need.length > 0;
+  if (total === 0) {
+    emptyTitle.textContent = "Пока пусто";
+    emptyText.textContent = "Добавь что-нибудь — второй увидит сразу.";
+  } else {
+    emptyTitle.textContent = "Всё куплено!";
+    emptyText.textContent = "Коты довольны 😺";
   }
+
+  footerEl.hidden = total === 0;
+  progressEl.hidden = total === 0;
+  statNeed.textContent = need.length ? `${need.length} нужно` : "Всё куплено";
+  statDone.textContent = `${done.length} из ${total} куплено`;
+  progressBar.style.width = total ? `${Math.round((done.length / total) * 100)}%` : "0";
+
+  if (swipeHint) swipeHint.hidden = need.length === 0 || hintDismissed;
+
+  // подсказка: первая строка один раз «отъезжает»
+  if (firstNeedRow && !hintDismissed && !nudgeShown) {
+    nudgeShown = true;
+    firstNeedRow.classList.add("row--nudge");
+  }
+
+  knownIds = new Set(items.map((i) => i.id));
+  window.scrollTo(0, scrollY);
 }
 
 function showApp() {
@@ -422,6 +587,7 @@ function showApp() {
   history.replaceState(null, "", getShareUrl(listCode));
   renderCategoryBar();
   render();
+  syncBottomPadding();
 }
 
 function connectList(code) {

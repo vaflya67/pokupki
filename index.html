@@ -57,20 +57,31 @@
     </header>
 
     <main class="main">
-      <div class="stats" id="stats">
-        <span id="statNeed">0 нужно</span>
-        <span class="stats__dot">·</span>
-        <span id="statDone">0 куплено</span>
+      <div class="progress" id="progress">
+        <div class="progress__text">
+          <span class="progress__need" id="statNeed">0 нужно</span>
+          <span id="statDone">0 куплено</span>
+        </div>
+        <div class="progress__track"><div class="progress__bar" id="progressBar"></div></div>
       </div>
 
-      <p class="swipe-hint" id="swipeHint">👉 Свайпни вправо — купил</p>
+      <p class="swipe-hint" id="swipeHint"><b>→ вправо</b> купил · <b class="del">влево ←</b> удалить</p>
+
+      <div class="empty" id="empty">
+        <svg class="empty__cat" viewBox="0 0 120 120" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+          <path class="tail" d="M82 96c14 0 20-8 18-18-1-5-5-7-8-4" />
+          <path d="M38 100C36 82 46 70 60 70s24 12 22 30z" fill="currentColor" fill-opacity="0.12" />
+          <path d="M45 40l-1-16 12 9M64 33l12-9-1 16" fill="currentColor" fill-opacity="0.12" />
+          <circle cx="60" cy="50" r="18" fill="currentColor" fill-opacity="0.12" />
+          <path d="M51 50q3 3 6 0M63 50q3 3 6 0" />
+          <path d="M58 57l2 2 2-2" />
+          <path d="M40 55h-10M41 60l-9 3M80 55h10M79 60l9 3" stroke-width="2.5" />
+        </svg>
+        <p class="empty__title" id="emptyTitle">Пока пусто</p>
+        <p id="emptyText">Добавь что-нибудь — второй увидит сразу.</p>
+      </div>
 
       <div class="list-wrap" id="listWrap"></div>
-
-      <p class="empty" id="empty">
-        Пока пусто.<br />
-        Добавь что-нибудь — партнёр увидит сразу.
-      </p>
     </main>
 
     <div class="bottom-bar">
