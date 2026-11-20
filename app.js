@@ -87,6 +87,9 @@ let unsubscribe = null;
 let openId = null;
 let knownIds = null;
 let nudgeShown = false;
+let editId = null;
+let editDraft = null;
+let pendingRender = false;
 
 /* ---------- helpers ---------- */
 
@@ -438,6 +441,10 @@ function renderItem(item, mode, isNew) {
   li.style.setProperty("--c", catColor(item.category));
   li.dataset.id = item.id;
 
+  if (mode === "buy" && editId === item.id) {
+    return renderEditRow(li);
+  }
+
   if (mode === "buy") {
     li.innerHTML = `
       <div class="row__bg row__bg--right"><span class="row__bg-icon">✓</span>Купил</div>
@@ -447,6 +454,7 @@ function renderItem(item, mode, isNew) {
         <div class="row__body"><span class="row__name">${escapeHtml(item.name)}</span></div>
         ${item.qty > 1 ? `<button type="button" class="qty-pill" aria-label="Количество">×${item.qty}</button>` : ""}
         <div class="stepper">
+          <button type="button" class="stepper__btn stepper__btn--edit" data-action="edit" aria-label="Изменить">✏️</button>
           <button type="button" class="stepper__btn" data-action="minus" aria-label="Меньше">−</button>
           <span class="stepper__num">${item.qty}</span>
           <button type="button" class="stepper__btn" data-action="plus" aria-label="Больше">+</button>
@@ -474,6 +482,7 @@ function renderItem(item, mode, isNew) {
       else changeQty(item.id, -1);
     });
     li.querySelector('[data-action="plus"]').addEventListener("click", () => changeQty(item.id, 1));
+    li.querySelector('[data-action="edit"]').addEventListener("click", () => startEdit(item));
 
     attachSwipe(li, {
       onRight: () => setDone(item.id, true),
@@ -502,6 +511,86 @@ function renderItem(item, mode, isNew) {
     });
   }
 
+  return li;
+}
+
+/* ---------- редактирование ---------- */
+
+function startEdit(item) {
+  editId = item.id;
+  editDraft = { name: item.name, category: normalizeCategory(item.category) };
+  haptic();
+  render();
+}
+
+function stopEdit() {
+  editId = null;
+  editDraft = null;
+  openId = null;
+  pendingRender = false;
+  render();
+}
+
+async function saveEdit() {
+  const item = items.find((i) => i.id === editId);
+  const name = (editDraft?.name || "").trim();
+  if (!item || !name) {
+    if (!item) showToast("Этот товар уже удалили");
+    stopEdit();
+    return;
+  }
+  const data = {};
+  if (name !== item.name) data.name = name;
+  if (editDraft.category !== normalizeCategory(item.category)) data.category = editDraft.category;
+  const id = editId;
+  stopEdit();
+  if (Object.keys(data).length) {
+    try {
+      await patchItem(id, data);
+      haptic();
+      showToast("Сохранено ✓");
+    } catch {
+      showToast("Не получилось сохранить");
+    }
+  }
+}
+
+function renderEditRow(li) {
+  li.className = "row row--editing";
+  li.style.setProperty("--c", catColor(editDraft.category));
+  li.innerHTML = `
+    <form class="row__panel edit-form">
+      <input class="edit-input" type="text" maxlength="120" enterkeyhint="done" autocomplete="off" />
+      <button type="button" class="edit-btn edit-btn--cancel" aria-label="Отмена">✕</button>
+      <button type="submit" class="edit-btn edit-btn--save" aria-label="Сохранить">✓</button>
+    </form>
+    <div class="edit-cats">
+      ${CATEGORIES.map((c) => `
+        <button type="button" class="cats__btn${c.id === editDraft.category ? " cats__btn--active" : ""}" data-cat="${c.id}" style="--c:${catColor(c.id)}">${c.emoji} ${c.label}</button>`).join("")}
+    </div>`;
+
+  const input = li.querySelector(".edit-input");
+  input.value = editDraft.name;
+  input.addEventListener("input", () => { editDraft.name = input.value; });
+  input.addEventListener("keydown", (e) => { if (e.key === "Escape") stopEdit(); });
+  li.querySelector(".edit-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    saveEdit();
+  });
+  li.querySelector(".edit-btn--cancel").addEventListener("click", stopEdit);
+  li.querySelectorAll(".edit-cats .cats__btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      editDraft.category = btn.dataset.cat;
+      li.style.setProperty("--c", catColor(editDraft.category));
+      li.querySelectorAll(".edit-cats .cats__btn").forEach((b) => b.classList.toggle("cats__btn--active", b === btn));
+      haptic();
+      input.focus();
+    });
+  });
+  requestAnimationFrame(() => {
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  });
   return li;
 }
 
@@ -610,7 +699,11 @@ function connectList(code) {
         return { ...data, category: normalizeCategory(data.category) };
       });
       setSyncStatus(navigator.onLine ? "live" : "offline");
-      render();
+      if (editId && items.some((i) => i.id === editId && !i.done)) pendingRender = true;
+      else {
+        if (editId) { editId = null; editDraft = null; }
+        render();
+      }
     },
     (err) => {
       console.error(err);

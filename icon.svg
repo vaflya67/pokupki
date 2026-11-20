@@ -1,4 +1,47 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#1a5c4b"/>
-  <text x="256" y="340" font-size="280" text-anchor="middle">=Ò</text>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2bb38a"/>
+      <stop offset="1" stop-color="#16725a"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <circle cx="256" cy="270" r="190" fill="#ffffff" opacity="0.08"/>
+  <!-- tail -->
+  <path d="M150 400 C 90 400, 80 330, 120 320" fill="none" stroke="#f08c2e" stroke-width="26" stroke-linecap="round"/>
+  <!-- body -->
+  <path d="M140 420 C 130 330, 170 290, 215 290 C 262 290, 300 330, 292 420 Z" fill="#f59a3f"/>
+  <ellipse cx="216" cy="372" rx="42" ry="46" fill="#ffd7a8"/>
+  <!-- ears -->
+  <path d="M138 200 L 132 108 L 200 160 Z" fill="#f59a3f"/>
+  <path d="M294 200 L 300 108 L 232 160 Z" fill="#f59a3f"/>
+  <path d="M148 180 L 145 132 L 182 160 Z" fill="#ffb9a0"/>
+  <path d="M284 180 L 287 132 L 250 160 Z" fill="#ffb9a0"/>
+  <!-- head -->
+  <ellipse cx="216" cy="222" rx="94" ry="84" fill="#f59a3f"/>
+  <!-- stripes -->
+  <path d="M216 140 v26 M196 144 l6 22 M236 144 l-6 22" stroke="#d9741c" stroke-width="9" stroke-linecap="round"/>
+  <!-- muzzle -->
+  <ellipse cx="216" cy="250" rx="46" ry="34" fill="#ffd7a8"/>
+  <!-- eyes happy -->
+  <path d="M168 218 q14 -16 28 0 M236 218 q14 -16 28 0" fill="none" stroke="#3b2414" stroke-width="10" stroke-linecap="round"/>
+  <!-- blush -->
+  <ellipse cx="160" cy="246" rx="14" ry="8" fill="#ff8a7a" opacity="0.6"/>
+  <ellipse cx="272" cy="246" rx="14" ry="8" fill="#ff8a7a" opacity="0.6"/>
+  <!-- nose + mouth -->
+  <path d="M207 238 h18 l-9 10 z" fill="#e0607a"/>
+  <path d="M216 248 q-10 14 -20 6 M216 248 q10 14 20 6" fill="none" stroke="#3b2414" stroke-width="6" stroke-linecap="round"/>
+  <!-- bag -->
+  <path d="M308 262 q0 -64 40 -64 q40 0 40 64" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round"/>
+  <!-- greens peeking -->
+  <path d="M318 262 q-8 -46 22 -60 q4 30 -10 60 z" fill="#5fd36a"/>
+  <path d="M348 262 q4 -56 36 -62 q-2 36 -24 62 z" fill="#3fbf5a"/>
+  <rect x="368" y="176" width="22" height="90" rx="11" transform="rotate(18 379 221)" fill="#f2c27a"/>
+  <path d="M278 258 h140 l-8 166 q-1 12 -13 12 h-98 q-12 0 -13 -12 z" fill="#ffffff"/>
+  <path d="M278 258 h140 l-1 20 h-138 z" fill="#e6eeea"/>
+  <!-- heart on bag -->
+  <path d="M348 366 c-26 -18 -34 -30 -34 -42 a16 16 0 0 1 34 -6 a16 16 0 0 1 34 6 c0 12 -8 24 -34 42z" fill="#2bb38a"/>
+  <!-- paw on bag -->
+  <ellipse cx="284" cy="334" rx="26" ry="20" fill="#f59a3f"/>
+  <path d="M274 326 v12 M286 324 v14" stroke="#d9741c" stroke-width="4" stroke-linecap="round"/>
 </svg>

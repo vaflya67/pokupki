@@ -1,5 +1,5 @@
-const CACHE = "spisok-pokupok-v4";
-const ASSETS = ["./", "./index.html", "./style.css", "./app.js", "./icon.svg", "./manifest.json"];
+const CACHE = "spisok-pokupok-v5";
+const ASSETS = ["./", "./index.html", "./style.css", "./app.js", "./icon.svg", "./icon-180.png", "./icon-192.png", "./icon-512.png", "./manifest.json"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)));
