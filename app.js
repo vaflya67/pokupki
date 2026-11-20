@@ -781,12 +781,40 @@ async function initNotifications() {
   }
 }
 
-notifyBtn?.addEventListener("click", () => {
-  if (notifyOn()) {
-    if (confirm("Выключить уведомления на этом телефоне?")) disableNotifications();
-  } else {
-    enableNotifications();
+const notifySheet = $("notifySheet");
+const nameInput = $("nameInput");
+
+function openNotifySheet() {
+  nameInput.value = myName();
+  notifySheet.hidden = false;
+}
+
+function closeNotifySheet() {
+  notifySheet.hidden = true;
+}
+
+async function saveName() {
+  const name = nameInput.value.trim().slice(0, 20);
+  localStorage.setItem(NAME_KEY, name);
+  closeNotifySheet();
+  try {
+    await updateDoc(devicesDoc(), { name, updatedAt: Date.now() });
+  } catch {
+    registerPushToken().catch(() => {});
   }
+  haptic();
+  showToast(name ? `Теперь ты «${name}» ✓` : "Имя убрано");
+}
+
+$("saveNameBtn").addEventListener("click", saveName);
+nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") saveName(); });
+$("notifyOffBtn").addEventListener("click", () => { closeNotifySheet(); disableNotifications(); });
+$("sheetCloseBtn").addEventListener("click", closeNotifySheet);
+notifySheet.addEventListener("click", (e) => { if (e.target === notifySheet) closeNotifySheet(); });
+
+notifyBtn?.addEventListener("click", () => {
+  if (notifyOn()) openNotifySheet();
+  else enableNotifications();
 });
 
 function showApp() {
