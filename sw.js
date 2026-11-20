@@ -1,4 +1,4 @@
-const CACHE = "spisok-pokupok-v5";
+const CACHE = "spisok-pokupok-v6";
 const ASSETS = ["./", "./index.html", "./style.css", "./app.js", "./icon.svg", "./icon-180.png", "./icon-192.png", "./icon-512.png", "./manifest.json"];
 
 self.addEventListener("install", (event) => {

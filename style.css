@@ -996,3 +996,12 @@ html[data-theme="dark"] .toast__action {
 .edit-cats .cats__btn--active {
   background: color-mix(in srgb, var(--c) 16%, var(--surface));
 }
+
+.overlay__join .overlay__btn {
+  width: auto;
+  flex-shrink: 0;
+  margin-top: 0;
+  padding: 14px 20px;
+  background: var(--accent);
+  color: #fff;
+}

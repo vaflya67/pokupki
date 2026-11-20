@@ -2,7 +2,6 @@
   "name": "Список покупок",
   "short_name": "Покупки",
   "description": "Общий список покупок для дома",
-  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
