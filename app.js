@@ -10,11 +10,21 @@ import {
   writeBatch,
   enableIndexedDbPersistence,
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import {
+  getMessaging,
+  getToken,
+  deleteToken,
+  isSupported as messagingSupported,
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging.js";
 
 const THEME_KEY = "spisok-pokupok-theme";
 const LIST_KEY = "spisok-pokupok-list-code";
 const CAT_KEY = "spisok-pokupok-category";
 const HINT_KEY = "spisok-pokupok-swipe-hint-v2";
+const DEVICE_KEY = "spisok-pokupok-device";
+const NAME_KEY = "spisok-pokupok-name";
+const NOTIFY_KEY = "spisok-pokupok-notify";
+const VAPID_KEY = "BClrRmY3AimUoMbbK5kAmafUVEe_2HuXcMH4TC40raMJ_yoYwIAAh77UQOsL-pN5u8SBup2Np-uSUjie1U1skeQ";
 const SWIPE_THRESHOLD = 80;
 const ANIM_MS = 260;
 
@@ -68,6 +78,7 @@ const statDone = $("statDone");
 const clearDoneBtn = $("clearDone");
 const clearAllBtn = $("clearAll");
 const themeBtn = $("themeBtn");
+const notifyBtn = $("notifyBtn");
 const createListBtn = $("createListBtn");
 const joinForm = $("joinForm");
 const joinCodeInput = $("joinCodeInput");
@@ -90,6 +101,15 @@ let nudgeShown = false;
 let editId = null;
 let editDraft = null;
 let pendingRender = false;
+let firebaseApp = null;
+let messaging = null;
+let pushSupported = false;
+const deviceId = localStorage.getItem(DEVICE_KEY) || (() => {
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+  localStorage.setItem(DEVICE_KEY, id);
+  return id;
+})();
+const myName = () => localStorage.getItem(NAME_KEY) || "";
 
 /* ---------- helpers ---------- */
 
@@ -239,7 +259,7 @@ async function batchDelete(ids) {
 
 async function batchRestore(list) {
   const batch = writeBatch(db);
-  list.forEach((item) => batch.set(doc(itemsRef(), item.id), item));
+  list.forEach((item) => batch.set(doc(itemsRef(), item.id), { ...item, restoredAt: Date.now() }));
   await batch.commit();
 }
 
@@ -282,7 +302,7 @@ async function addItem(name, category) {
     await patchItem(existing.id, { qty: existing.qty + 1 });
     showToast(`${existing.name} — уже ${existing.qty + 1} шт.`);
   } else {
-    const item = { id: uid(), name: trimmed, qty: 1, done: false, category: cat };
+    const item = { id: uid(), name: trimmed, qty: 1, done: false, category: cat, addedBy: deviceId, addedByName: myName() };
     await persistItem(item);
   }
 }
@@ -295,7 +315,7 @@ function hideSwipeHint() {
 async function setDone(id, done) {
   if (!items.find((i) => i.id === id)) return;
   if (openId === id) openId = null;
-  await patchItem(id, { done });
+  await patchItem(id, done ? { done, doneBy: deviceId, doneByName: myName() } : { done });
 }
 
 async function changeQty(id, delta) {
@@ -312,7 +332,7 @@ async function removeItem(id) {
   if (openId === id) openId = null;
   const copy = { ...item };
   await dropItem(id);
-  showToast(`Удалено: ${copy.name}`, { label: "Отменить", run: () => persistItem(copy) });
+  showToast(`Удалено: ${copy.name}`, { label: "Отменить", run: () => persistItem({ ...copy, restoredAt: Date.now() }) });
 }
 
 async function clearDone() {
@@ -669,6 +689,106 @@ function render() {
   window.scrollTo(0, scrollY);
 }
 
+/* ---------- уведомления ---------- */
+
+function isIos() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function isStandalone() {
+  return window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+}
+
+function notifyOn() {
+  return localStorage.getItem(NOTIFY_KEY) === "1" && "Notification" in window && Notification.permission === "granted";
+}
+
+function updateNotifyBtn() {
+  if (!notifyBtn) return;
+  const on = notifyOn();
+  notifyBtn.textContent = on ? "🔔" : "🔕";
+  notifyBtn.classList.toggle("icon-btn--on", on);
+  notifyBtn.setAttribute("aria-label", on ? "Уведомления включены" : "Включить уведомления");
+}
+
+function devicesDoc() {
+  return doc(collection(db, "lists", listCode, "devices"), deviceId);
+}
+
+async function registerPushToken() {
+  const reg = await navigator.serviceWorker.ready;
+  const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: reg });
+  if (!token) throw new Error("no token");
+  await setDoc(devicesDoc(), {
+    token,
+    name: myName(),
+    ios: isIos(),
+    updatedAt: Date.now(),
+  });
+}
+
+async function enableNotifications() {
+  if (!pushSupported) {
+    if (isIos() && !isStandalone()) {
+      showToast("На iPhone: «Поделиться» → «На экран Домой», и включи там");
+    } else {
+      showToast("Этот браузер не умеет уведомления");
+    }
+    return;
+  }
+  // разрешение спрашиваем сразу по тапу — иначе iPhone не покажет окно
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") {
+    showToast("Уведомления запрещены — включи в настройках телефона");
+    updateNotifyBtn();
+    return;
+  }
+  if (!myName()) {
+    const name = (prompt("Как тебя подписывать в уведомлениях?\nНапример: Влад") || "").trim().slice(0, 20);
+    if (name) localStorage.setItem(NAME_KEY, name);
+  }
+  try {
+    await registerPushToken();
+    localStorage.setItem(NOTIFY_KEY, "1");
+    haptic();
+    showToast("Уведомления включены 🔔");
+  } catch (err) {
+    console.error(err);
+    showToast("Не получилось включить уведомления");
+  }
+  updateNotifyBtn();
+}
+
+async function disableNotifications() {
+  localStorage.setItem(NOTIFY_KEY, "0");
+  updateNotifyBtn();
+  try { await deleteDoc(devicesDoc()); } catch { /* ignore */ }
+  try { await deleteToken(messaging); } catch { /* ignore */ }
+  showToast("Уведомления выключены 🔕");
+}
+
+async function initNotifications() {
+  try {
+    pushSupported = "serviceWorker" in navigator && "Notification" in window && (await messagingSupported());
+    if (pushSupported) messaging = getMessaging(firebaseApp);
+  } catch {
+    pushSupported = false;
+  }
+  updateNotifyBtn();
+  // токен может смениться — тихо обновляем при каждом запуске
+  if (pushSupported && notifyOn() && listCode) {
+    registerPushToken().catch((e) => console.warn("push refresh", e));
+  }
+}
+
+notifyBtn?.addEventListener("click", () => {
+  if (notifyOn()) {
+    if (confirm("Выключить уведомления на этом телефоне?")) disableNotifications();
+  } else {
+    enableNotifications();
+  }
+});
+
 function showApp() {
   joinOverlay.hidden = true;
   appEl.hidden = false;
@@ -744,6 +864,7 @@ async function loadConfig() {
 
 async function initFirebase(config) {
   const app = initializeApp(config.firebaseConfig);
+  firebaseApp = app;
   db = getFirestore(app);
   try {
     await enableIndexedDbPersistence(db);
@@ -799,4 +920,5 @@ if (!configModule?.isConfigured) {
   } else {
     joinOverlay.hidden = false;
   }
+  initNotifications();
 }

@@ -1,0 +1,35 @@
+name: Deploy Firebase (уведомления + правила базы)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "functions/**"
+      - "firestore.rules"
+      - "firebase.json"
+      - ".github/workflows/deploy-firebase.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install functions deps
+        run: npm install --prefix functions --omit=dev
+      - name: Credentials
+        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$RUNNER_TEMP/sa.json"
+      - name: Deploy (повтор при первой ошибке — Google иногда раздаёт права с задержкой)
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
+        run: |
+          npx -y firebase-tools@latest functions:artifacts:setpolicy --days 1 --force --project products-842b8 || true
+          for i in 1 2 3; do
+            npx -y firebase-tools@latest deploy --only functions,firestore:rules --project products-842b8 --non-interactive --force && exit 0
+            echo "Попытка $i не удалась, жду 90 секунд..."
+            sleep 90
+          done
+          exit 1

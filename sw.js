@@ -1,4 +1,4 @@
-const CACHE = "spisok-pokupok-v6";
+const CACHE = "spisok-pokupok-v7";
 const ASSETS = ["./", "./index.html", "./style.css", "./app.js", "./icon.svg", "./icon-180.png", "./icon-192.png", "./icon-512.png", "./manifest.json"];
 
 self.addEventListener("install", (event) => {
@@ -33,6 +33,39 @@ self.addEventListener("fetch", (event) => {
         })
         .catch(() => cached);
       return cached || fetched;
+    })
+  );
+});
+
+/* ---------- push-уведомления ---------- */
+self.addEventListener("push", (event) => {
+  let p = {};
+  try {
+    const json = event.data ? event.data.json() : {};
+    p = json.data || json.notification || json;
+  } catch {
+    p = { body: event.data ? event.data.text() : "" };
+  }
+  event.waitUntil(
+    self.registration.showNotification(p.title || "🛒 Список покупок", {
+      body: p.body || "",
+      icon: "./icon-192.png",
+      badge: "./icon-192.png",
+      tag: p.tag || undefined,
+      data: { url: p.url || "./" },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = new URL(event.notification.data?.url || "./", self.registration.scope).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const client of list) {
+        if (client.url.startsWith(self.registration.scope) && "focus" in client) return client.focus();
+      }
+      return self.clients.openWindow(url);
     })
   );
 });

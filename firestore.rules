@@ -4,6 +4,9 @@ service cloud.firestore {
     match /lists/{listId}/items/{itemId} {
       allow read, write: if listId.matches('^[A-Z0-9]{6}$');
     }
+    match /lists/{listId}/devices/{deviceId} {
+      allow read, write: if listId.matches('^[A-Z0-9]{6}$');
+    }
     match /lists/{listId} {
       allow read, write: if listId.matches('^[A-Z0-9]{6}$');
     }
