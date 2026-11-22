@@ -73,10 +73,9 @@ const emptyEl = $("empty");
 const emptyTitle = $("emptyTitle");
 const emptyText = $("emptyText");
 const footerEl = $("footer");
-const progressEl = $("progress");
-const progressBar = $("progressBar");
-const statNeed = $("statNeed");
-const statDone = $("statDone");
+const ringBar = $("ringBar");
+const ringNum = $("ringNum");
+const ringOf = $("ringOf");
 const clearDoneBtn = $("clearDone");
 const clearAllBtn = $("clearAll");
 const themeBtn = $("themeBtn");
@@ -91,7 +90,8 @@ const toastEl = $("toast");
 const swipeHint = $("swipeHint");
 const bottomBar = document.querySelector(".bottom-bar");
 
-let selectedCategory = normalizeCategory(localStorage.getItem(CAT_KEY) || "food");
+// "all" — показываем всё, новое раскидываем по словам; иначе фильтр и категория для добавления
+let selectedCategory = "all";
 let items = [];
 let hideDone = false;
 let listCode = "";
@@ -162,6 +162,33 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+/* ---------- анимации (Motion, если загрузился) ---------- */
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const SPRING = { type: "spring", stiffness: 420, damping: 32 };
+function anim(el, keyframes, options) {
+  const M = window.Motion;
+  if (!M || reduceMotion || !el) return null;
+  try { return M.animate(el, keyframes, options); } catch { return null; }
+}
+
+function burst(target) {
+  if (!window.Motion || reduceMotion) return;
+  const host = target.closest(".row");
+  if (!host) return;
+  const r = target.getBoundingClientRect();
+  const hr = host.getBoundingClientRect();
+  for (let k = 0; k < 8; k++) {
+    const dot = document.createElement("span");
+    dot.className = "burst";
+    dot.style.left = r.left - hr.left + r.width / 2 - 3 + "px";
+    dot.style.top = r.top - hr.top + r.height / 2 - 3 + "px";
+    host.appendChild(dot);
+    const a = (k / 8) * Math.PI * 2;
+    const a1 = anim(dot, { x: [0, Math.cos(a) * 26], y: [0, Math.sin(a) * 26], opacity: [1, 0], scale: [1, 0.4] }, { duration: 0.45, ease: "easeOut" });
+    if (a1) a1.then(() => dot.remove()); else dot.remove();
+  }
+}
+
 /* Вибрация: Android — vibrate, iPhone (iOS 18+) — трюк с переключателем */
 const hapticLabel = (() => {
   const label = document.createElement("label");
@@ -222,7 +249,7 @@ function applyTheme(theme) {
   themeBtn.textContent = theme === "dark" ? "☀️" : "🌙";
   themeBtn.setAttribute("aria-label", theme === "dark" ? "Светлая тема" : "Тёмная тема");
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = theme === "dark" ? "#0e1513" : "#f3f6f4";
+  if (meta) meta.content = theme === "dark" ? "#123f34" : "#1a5c4b";
   localStorage.setItem(THEME_KEY, theme);
 }
 
@@ -267,29 +294,34 @@ async function batchRestore(list) {
 
 /* ---------- actions ---------- */
 
-function renderCategoryBar() {
-  categoryBar.innerHTML = CATEGORIES.map(
-    (cat) => `
-      <button type="button" class="cats__btn${selectedCategory === cat.id ? " cats__btn--active" : ""}" data-cat="${cat.id}" style="--c:${catColor(cat.id)}">
-        ${cat.emoji} ${cat.label}
-      </button>`
-  ).join("");
-  addForm.style.setProperty("--c", catColor(selectedCategory));
+const ALL_CHIP = { id: "all", label: "Все", emoji: "✨" };
 
-  categoryBar.querySelectorAll(".cats__btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      selectedCategory = btn.dataset.cat;
-      localStorage.setItem(CAT_KEY, selectedCategory);
-      renderCategoryBar();
-    });
-  });
+function renderCategoryBar() {
+  const count = (id) => items.filter((i) => !i.done && (id === "all" || normalizeCategory(i.category) === id)).length;
+  categoryBar.innerHTML = [ALL_CHIP, ...CATEGORIES].map((cat) => {
+    const on = selectedCategory === cat.id;
+    const color = cat.id === "all" ? "var(--cat-all)" : catColor(cat.id);
+    return `<button type="button" class="chip${on ? " chip--on" : ""}" data-cat="${cat.id}" style="--c:${color}" aria-pressed="${on}">
+        <span>${cat.emoji} ${cat.label}</span><i>${count(cat.id)}</i>
+      </button>`;
+  }).join("");
+  addForm.style.setProperty("--c", selectedCategory === "all" ? "var(--cat-all)" : catColor(selectedCategory));
 }
+
+categoryBar.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-cat]");
+  if (!btn || btn.dataset.cat === selectedCategory) return;
+  selectedCategory = btn.dataset.cat;
+  haptic();
+  render();
+  anim(categoryBar.querySelector(".chip--on"), { scale: [0.88, 1] }, { type: "spring", stiffness: 600, damping: 18 });
+});
 
 async function addItem(name, category) {
   const trimmed = name.trim();
   if (!trimmed || !db) return;
 
-  const cat = normalizeCategory(category || selectedCategory || guessCategory(trimmed));
+  const cat = normalizeCategory(category || (selectedCategory !== "all" ? selectedCategory : guessCategory(trimmed)));
   const existing = items.find(
     (i) =>
       !i.done &&
@@ -486,6 +518,8 @@ function renderItem(item, mode, isNew) {
     const check = li.querySelector(".check");
     check.addEventListener("click", () => {
       check.classList.add("check--on");
+      anim(check, { scale: [0.6, 1.25, 1] }, { duration: 0.35 });
+      burst(check);
       haptic();
       hideSwipeHint();
       setTimeout(() => collapseRow(li, () => setDone(item.id, true)), 220);
@@ -618,9 +652,14 @@ function renderEditRow(li) {
 
 function render() {
   const scrollY = window.scrollY;
+  const before = {};
+  listWrap.querySelectorAll(".row[data-id]").forEach((el) => { before[el.dataset.id] = el.getBoundingClientRect().top; });
   listWrap.innerHTML = "";
-  const need = items.filter((i) => !i.done);
-  const done = items.filter((i) => i.done);
+  renderCategoryBar();
+  const inFilter = (i) => selectedCategory === "all" || normalizeCategory(i.category) === selectedCategory;
+  const visible = items.filter(inFilter);
+  const need = visible.filter((i) => !i.done);
+  const done = visible.filter((i) => i.done);
   const firstRender = knownIds === null;
   const isNew = (id) => !firstRender && !knownIds.has(id);
   let firstNeedRow = null;
@@ -661,11 +700,18 @@ function render() {
   }
 
   const total = items.length;
+  const totalDone = items.filter((i) => i.done).length;
   const hintDismissed = localStorage.getItem(HINT_KEY) === "1";
 
   // пустые состояния
   emptyEl.hidden = need.length > 0;
-  if (total === 0) {
+  if (selectedCategory !== "all" && !visible.length) {
+    emptyTitle.textContent = `В «${getCategory(selectedCategory).label}» пусто`;
+    emptyText.textContent = "Добавь сюда что-нибудь или открой «Все».";
+  } else if (selectedCategory !== "all" && !need.length) {
+    emptyTitle.textContent = "Тут всё куплено!";
+    emptyText.textContent = "Коты довольны 😺";
+  } else if (total === 0) {
     emptyTitle.textContent = "Пока пусто";
     emptyText.textContent = "Добавь что-нибудь — второй увидит сразу.";
   } else {
@@ -674,10 +720,7 @@ function render() {
   }
 
   footerEl.hidden = total === 0;
-  progressEl.hidden = total === 0;
-  statNeed.textContent = need.length ? `${need.length} нужно` : "Всё куплено";
-  statDone.textContent = `${done.length} из ${total} куплено`;
-  progressBar.style.width = total ? `${Math.round((done.length / total) * 100)}%` : "0";
+  updateRing(totalDone, total);
 
   if (swipeHint) swipeHint.hidden = need.length === 0 || hintDismissed;
 
@@ -689,6 +732,36 @@ function render() {
 
   knownIds = new Set(items.map((i) => i.id));
   window.scrollTo(0, scrollY);
+
+  // анимации: первый показ — по очереди, дальше карточки плавно переезжают
+  const rows = [...listWrap.querySelectorAll(".row[data-id]")];
+  if (firstRender) {
+    if (window.Motion) anim(rows, { opacity: [0, 1], y: [18, 0] }, { delay: window.Motion.stagger(0.04), ...SPRING });
+  } else {
+    rows.forEach((el) => {
+      const was = before[el.dataset.id];
+      if (was === undefined) {
+        anim(el, { opacity: [0, 1], scale: [0.9, 1], y: [30, 0] }, { type: "spring", stiffness: 500, damping: 28 });
+        return;
+      }
+      const dy = was - el.getBoundingClientRect().top;
+      if (Math.abs(dy) > 1) anim(el, { y: [dy, 0] }, SPRING);
+    });
+  }
+}
+
+const RING_LEN = 232.5;
+function updateRing(doneCount, total) {
+  ringBar.style.strokeDashoffset = total ? RING_LEN - (RING_LEN * doneCount) / total : RING_LEN;
+  ringOf.textContent = `из ${total}`;
+  const from = Number(ringNum.textContent) || 0;
+  if (window.Motion && !reduceMotion && from !== doneCount) {
+    try {
+      window.Motion.animate(from, doneCount, { duration: 0.6, onUpdate: (v) => { ringNum.textContent = Math.round(v); } });
+      return;
+    } catch { /* ниже */ }
+  }
+  ringNum.textContent = doneCount;
 }
 
 /* ---------- уведомления ---------- */
@@ -864,7 +937,6 @@ function showApp() {
   appEl.hidden = false;
   listCodeLabel.textContent = listCode;
   history.replaceState(null, "", getShareUrl(listCode));
-  renderCategoryBar();
   render();
   syncBottomPadding();
 }
